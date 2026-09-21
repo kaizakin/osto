@@ -196,6 +196,9 @@ func TestGenerateTOTPSecret(t *testing.T) {
 	if key.Secret() == "" || key.URL() == "" {
 		t.Error("expected non-empty secret and URL")
 	}
+	if key.Issuer() != "osto" {
+		t.Errorf("issuer = %q, want osto", key.Issuer())
+	}
 }
 
 func TestValidateTOTPCodeSuccess(t *testing.T) {

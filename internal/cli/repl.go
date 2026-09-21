@@ -13,9 +13,13 @@ import (
 )
 
 const (
-	promptUnauthenticated = "auth-cli> "
-	historyFile           = "/tmp/auth-cli-history"
+	promptUnauthenticated = "osto> "
+	historyFile           = "/tmp/osto-history"
 )
+
+func promptAuthenticated(username string) string {
+	return fmt.Sprintf("osto (%s)> ", username)
+}
 
 // Run starts the interactive REPL and blocks until the user exits.
 func Run(db *sql.DB, state *models.AppState) error {
@@ -36,7 +40,7 @@ func Run(db *sql.DB, state *models.AppState) error {
 
 	for {
 		if state.IsLoggedIn() {
-			rl.SetPrompt(fmt.Sprintf("auth-cli (%s)> ", state.CurrentUser.Username))
+			rl.SetPrompt(promptAuthenticated(state.CurrentUser.Username))
 		} else {
 			rl.SetPrompt(promptUnauthenticated)
 		}
@@ -123,7 +127,7 @@ func dispatchPostLogin(cmd string, rl *readline.Instance, db *sql.DB, state *mod
 func printBanner() {
 	fmt.Println()
 	fmt.Println(bold("  ╔══════════════════════════════════════╗"))
-	fmt.Println(bold("  ║         auth-cli  v1.0.0             ║"))
+	fmt.Println(bold("  ║             osto  v1.0.0             ║"))
 	fmt.Println(bold("  ║  Secure CLI Login with TOTP 2FA      ║"))
 	fmt.Println(bold("  ╚══════════════════════════════════════╝"))
 	fmt.Printf("\n  Type %s to get started.\n\n", cyan("help"))

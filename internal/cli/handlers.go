@@ -14,6 +14,8 @@ import (
 	"github.com/skip2/go-qrcode"
 )
 
+const minPasswordLen = 8
+
 var (
 	green  = color.New(color.FgGreen).SprintFunc()
 	red    = color.New(color.FgRed).SprintFunc()
@@ -40,6 +42,24 @@ func promptPassword(rl *readline.Instance, prompt string) (string, error) {
 	return strings.TrimSpace(string(pass)), nil
 }
 
+type passwordReader func(prompt string) (string, error)
+
+// promptPasswordUntilMinLength keeps asking until the password meets minLen.
+// A read error (Ctrl-C / EOF) still cancels.
+func promptPasswordUntilMinLength(read passwordReader, minLen int) (string, error) {
+	for {
+		password, err := read("  Password: ")
+		if err != nil {
+			return "", err
+		}
+		if len(password) < minLen {
+			fmt.Printf("  %s Password must be at least %d characters. Try again.\n", red("✗"), minLen)
+			continue
+		}
+		return password, nil
+	}
+}
+
 // HandleRegister prompts for credentials and registers a new account.
 func HandleRegister(rl *readline.Instance, db *sql.DB, state *models.AppState) {
 	fmt.Println(bold("\n── Register ──────────────────────────────────"))
@@ -48,13 +68,11 @@ func HandleRegister(rl *readline.Instance, db *sql.DB, state *models.AppState) {
 		fmt.Println(red("  ✗ Cancelled or empty username."))
 		return
 	}
-	password, err := promptPassword(rl, "  Password: ")
+	password, err := promptPasswordUntilMinLength(func(prompt string) (string, error) {
+		return promptPassword(rl, prompt)
+	}, minPasswordLen)
 	if err != nil {
 		fmt.Println(red("  ✗ Cancelled."))
-		return
-	}
-	if len(password) < 8 {
-		fmt.Println(red("  ✗ Password must be at least 8 characters."))
 		return
 	}
 	confirm, err := promptPassword(rl, "  Confirm password: ")

@@ -32,7 +32,7 @@ func CheckPassword(hash, plaintext string) bool {
 // GenerateTOTPSecret generates a new RFC 6238 TOTP key for username.
 func GenerateTOTPSecret(username string) (*otp.Key, error) {
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "auth-cli",
+		Issuer:      "osto",
 		AccountName: username,
 		Algorithm:   otp.AlgorithmSHA1,
 		Digits:      otp.DigitsSix,
