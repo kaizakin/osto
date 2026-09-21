@@ -1,19 +1,43 @@
+# give volume access to the process running in 1000:1000
+# since the rootfs is read-only osto process can't write wal in the volume directory which is created and owned by root
+# this container(data-init) fixes that and dies.
 services:
+  data-init:     
+    image: alpine:latest
+    user: "0:0"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN 
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - sqlite_data:/data
+    command: ["chown", "-R", "1000:1000", "/data"]
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    # stdin_open + tty are both required for interactive terminal usage.
-    # Without them Docker closes stdin immediately and readline has no input.
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     stdin_open: true
     tty: true
-
     environment:
-      # DB_PATH: "/app/data/auth.db"
+      DB_PATH: /app/data/auth.db
       SESSION_TIMEOUT: "${SESSION_TIMEOUT:-15m}"
-
     volumes:
-      - sqlite_data:/app/data
+      - sqlite_data:/app/data:rw
+    tmpfs:
+      - /tmp:noexec,nosuid,mode=1777
 
 volumes:
   sqlite_data:

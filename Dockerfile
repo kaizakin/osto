@@ -19,14 +19,18 @@ RUN go build \
 
 FROM alpine:latest
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN addgroup -S -g 1000 appgroup \
+    && adduser -S -u 1000 -G appgroup appuser
+
 RUN apk add --no-cache ca-certificates 2>/dev/null || true
 
 WORKDIR /app
 
-RUN mkdir -p /app/data && chown appuser:appgroup /app/data
-COPY --from=builder /app/osto  /app/osto
-COPY --from=builder /build/db/schema.sql /app/db/schema.sql
+RUN mkdir -p /app/data /app/db \
+    && chown -R appuser:appgroup /app
+
+COPY --from=builder --chown=appuser:appgroup /app/osto /app/osto
+COPY --from=builder --chown=appuser:appgroup /build/db/schema.sql /app/db/schema.sql
 
 USER appuser
 
