@@ -97,9 +97,14 @@ func handleFailedAttempt(database *sql.DB, user *models.User) error {
 		ErrInvalidCredentials, maxFailedAttempts-newAttempts)
 }
 
-// NewSession creates and persists a new session for userID with the given timeout.
+// NewSession creates a session. The returned Session.ID is the raw token for
+// CLI memory. The database row stores SHA-256(token bytes) as the primary key.
 func NewSession(database *sql.DB, userID int64, timeout time.Duration) (*models.Session, error) {
 	id, err := GenerateSessionID()
+	if err != nil {
+		return nil, err
+	}
+	hashed, err := HashSessionToken(id)
 	if err != nil {
 		return nil, err
 	}
@@ -109,30 +114,41 @@ func NewSession(database *sql.DB, userID int64, timeout time.Duration) (*models.
 		ExpiresAt: time.Now().UTC().Add(timeout),
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := store.CreateSession(database, session); err != nil {
+	stored := *session
+	stored.ID = hashed
+	if err := store.CreateSession(database, &stored); err != nil {
 		return nil, fmt.Errorf("service: create session: %w", err)
 	}
 	return session, nil
 }
 
-// ValidateSession returns the session if it exists and has not expired.
+// ValidateSession hashes the raw CLI token and looks up that digest in the DB.
 func ValidateSession(database *sql.DB, sessionID string) (*models.Session, error) {
-	session, err := store.GetSession(database, sessionID)
+	hashed, err := HashSessionToken(sessionID)
+	if err != nil {
+		return nil, nil
+	}
+	session, err := store.GetSession(database, hashed)
 	if err != nil {
 		return nil, fmt.Errorf("service: validate session: %w", err)
 	}
 	if session == nil || session.IsExpired() {
 		if session != nil {
-			_ = store.DeleteSession(database, sessionID)
+			_ = store.DeleteSession(database, hashed)
 		}
 		return nil, nil
 	}
+	session.ID = sessionID
 	return session, nil
 }
 
-// DestroySession deletes a session from the DB.
+// DestroySession hashes the raw CLI token, then deletes that digest row.
 func DestroySession(database *sql.DB, sessionID string) error {
-	if err := store.DeleteSession(database, sessionID); err != nil {
+	hashed, err := HashSessionToken(sessionID)
+	if err != nil {
+		return fmt.Errorf("service: destroy session: %w", err)
+	}
+	if err := store.DeleteSession(database, hashed); err != nil {
 		return fmt.Errorf("service: destroy session: %w", err)
 	}
 	return nil

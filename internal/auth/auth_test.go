@@ -1,7 +1,9 @@
 package auth_test
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -138,6 +140,16 @@ func TestNewSessionIsValid(t *testing.T) {
 	if session.IsExpired() {
 		t.Error("fresh session should not be expired")
 	}
+	validated, err := auth.ValidateSession(db, session.ID)
+	if err != nil {
+		t.Fatalf("ValidateSession: %v", err)
+	}
+	if validated == nil {
+		t.Fatal("expected valid session for raw token")
+	}
+	if validated.ID != session.ID {
+		t.Fatalf("ValidateSession.ID = %q, want raw token", validated.ID)
+	}
 }
 
 func TestValidateSessionExpired(t *testing.T) {
@@ -239,5 +251,123 @@ func TestGenerateSessionIDUniqueness(t *testing.T) {
 	}
 	if len(id1) != 64 {
 		t.Errorf("expected 64-char hex ID, got len=%d", len(id1))
+	}
+}
+
+func TestHashSessionTokenIsSHA256OfRawBytes(t *testing.T) {
+	token, err := auth.GenerateSessionID()
+	if err != nil {
+		t.Fatalf("GenerateSessionID: %v", err)
+	}
+	got, err := auth.HashSessionToken(token)
+	if err != nil {
+		t.Fatalf("HashSessionToken: %v", err)
+	}
+	if got == token {
+		t.Fatal("hash must not equal the raw token")
+	}
+	if len(got) != 64 {
+		t.Fatalf("hash len = %d, want 64 hex chars", len(got))
+	}
+	again, err := auth.HashSessionToken(token)
+	if err != nil || again != got {
+		t.Fatalf("hash must be stable: %v %q vs %q", err, again, got)
+	}
+	raw, err := hex.DecodeString(token)
+	if err != nil {
+		t.Fatalf("decode token: %v", err)
+	}
+	sum := sha256.Sum256(raw)
+	want := hex.EncodeToString(sum[:])
+	if got != want {
+		t.Fatalf("HashSessionToken = %q, want sha256(raw) %q", got, want)
+	}
+}
+
+func TestHashSessionTokenRejectsInvalidToken(t *testing.T) {
+	if _, err := auth.HashSessionToken("not-hex"); err == nil {
+		t.Fatal("expected error for non-hex token")
+	}
+	if _, err := auth.HashSessionToken("abcd"); err == nil {
+		t.Fatal("expected error for token that is not 32 bytes")
+	}
+}
+
+func TestSessionPlaintextNotStoredInDatabase(t *testing.T) {
+	db := newTestDB(t)
+	if err := auth.RegisterUser(db, "hashtest", "pass"); err != nil {
+		t.Fatalf("RegisterUser: %v", err)
+	}
+	user, err := auth.LoginUser(db, "hashtest", "pass")
+	if err != nil {
+		t.Fatalf("LoginUser: %v", err)
+	}
+	session, err := auth.NewSession(db, user.ID, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	wantHash, err := auth.HashSessionToken(session.ID)
+	if err != nil {
+		t.Fatalf("HashSessionToken: %v", err)
+	}
+
+	var storedID string
+	if err := db.QueryRow(`SELECT id FROM sessions WHERE user_id = ?`, user.ID).Scan(&storedID); err != nil {
+		t.Fatalf("select session id: %v", err)
+	}
+	if storedID == session.ID {
+		t.Fatal("database stored the raw session token")
+	}
+	if storedID != wantHash {
+		t.Fatalf("stored id = %q, want SHA-256 hex %q", storedID, wantHash)
+	}
+
+	plain, err := dbpkg.GetSession(db, session.ID)
+	if err != nil {
+		t.Fatalf("GetSession raw: %v", err)
+	}
+	if plain != nil {
+		t.Fatal("looking up the raw token in the DB must miss")
+	}
+	hashed, err := dbpkg.GetSession(db, wantHash)
+	if err != nil || hashed == nil {
+		t.Fatalf("looking up the SHA-256 digest must hit: %v", err)
+	}
+}
+
+func TestValidateSessionRejectsDigestUsedAsToken(t *testing.T) {
+	db := newTestDB(t)
+	if err := auth.RegisterUser(db, "digestuser", "pass"); err != nil {
+		t.Fatalf("RegisterUser: %v", err)
+	}
+	user, err := auth.LoginUser(db, "digestuser", "pass")
+	if err != nil {
+		t.Fatalf("LoginUser: %v", err)
+	}
+	session, err := auth.NewSession(db, user.ID, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	digest, err := auth.HashSessionToken(session.ID)
+	if err != nil {
+		t.Fatalf("HashSessionToken: %v", err)
+	}
+	validated, err := auth.ValidateSession(db, digest)
+	if err != nil {
+		t.Fatalf("ValidateSession: %v", err)
+	}
+	if validated != nil {
+		t.Fatal("the stored digest is not a usable session token")
+	}
+}
+
+func TestValidateSessionRejectsMalformedToken(t *testing.T) {
+	db := newTestDB(t)
+	validated, err := auth.ValidateSession(db, "not-a-token")
+	if err != nil {
+		t.Fatalf("ValidateSession: %v", err)
+	}
+	if validated != nil {
+		t.Fatal("expected nil for malformed token")
 	}
 }

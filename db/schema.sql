@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at   DATETIME NULL
 );
 
--- sessions: stores active session tokens with expiry.
--- id is a cryptographically generated 32-byte hex string.
+-- sessions: stores SHA-256 digests of session tokens with expiry.
+-- id is hex(SHA-256(raw 32-byte token)). The raw token never hits this table.
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT     PRIMARY KEY,
     user_id     INTEGER  NOT NULL,

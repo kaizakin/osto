@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 
@@ -50,10 +51,25 @@ func ValidateTOTPCode(secret, code string) bool {
 }
 
 // GenerateSessionID returns a cryptographically secure 256-bit hex token.
+// This is the raw bearer token for CLI memory only. Persist HashSessionToken(id).
 func GenerateSessionID() (string, error) {
 	b := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("auth: generate session id: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// HashSessionToken returns the hex SHA-256 of the 32-byte session token.
+// token must be the hex encoding of those 32 bytes.
+func HashSessionToken(token string) (string, error) {
+	raw, err := hex.DecodeString(token)
+	if err != nil {
+		return "", fmt.Errorf("auth: hash session token: %w", err)
+	}
+	if len(raw) != sessionTokenBytes {
+		return "", fmt.Errorf("auth: hash session token: want %d bytes, got %d", sessionTokenBytes, len(raw))
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
 }
