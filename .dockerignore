@@ -1,5 +1,7 @@
 # Patterns to exclude from the Docker build context.
 # Keeping the context small speeds up `docker compose build`.
+# NOTE: vendor/ is intentionally NOT excluded — it is copied into the builder
+# stage so the Go toolchain doesn't need network access during the build.
 
 # Git metadata
 .git/

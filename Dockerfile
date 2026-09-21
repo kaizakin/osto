@@ -10,15 +10,17 @@ ENV CGO_ENABLED=0 \
     GOOS=linux \
     GOARCH=amd64
 
-# Download modules first to leverage Docker layer caching.
-# This layer is only invalidated when go.mod / go.sum change.
+# Copy vendored dependencies first (no network access needed in builder).
+# This layer is only invalidated when go.mod/go.sum or vendor/ change.
 COPY go.mod go.sum ./
-RUN go mod download
+COPY vendor/ vendor/
 
 # Copy the rest of the source and compile with size optimisations.
 # -ldflags "-s -w" strips DWARF debug info and symbol table (~30% smaller).
+# -mod=vendor tells the toolchain to use the vendor directory.
 COPY . .
 RUN go build \
+      -mod=vendor \
       -ldflags="-s -w" \
       -trimpath \
       -o /app/auth-cli \
