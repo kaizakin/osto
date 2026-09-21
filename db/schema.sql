@@ -1,6 +1,3 @@
--- schema.sql: SQLite table definitions for the auth-cli application.
--- Applied once at startup via internal/db/db.go if tables do not yet exist.
-
 -- users: stores registered accounts, password hashes, TOTP config, and lockout state.
 CREATE TABLE IF NOT EXISTS users (
     id              INTEGER  PRIMARY KEY AUTOINCREMENT,

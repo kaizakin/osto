@@ -16,18 +16,27 @@ const (
 	sessionTokenBytes = 32
 )
 
-// HashPassword returns a bcrypt hash of password.
-func HashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+// ZeroBytes overwrites b in place so leftover plaintext does not sit in RAM.
+func ZeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
+// HashPassword returns a bcrypt hash of password, then zeros password.
+func HashPassword(password []byte) (string, error) {
+	defer ZeroBytes(password)
+	hash, err := bcrypt.GenerateFromPassword(password, bcryptCost)
 	if err != nil {
 		return "", fmt.Errorf("auth: hash password: %w", err)
 	}
 	return string(hash), nil
 }
 
-// CheckPassword reports whether plaintext matches the bcrypt hash.
-func CheckPassword(hash, plaintext string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plaintext)) == nil
+// CheckPassword reports whether plaintext matches the bcrypt hash, then zeros plaintext.
+func CheckPassword(hash string, plaintext []byte) bool {
+	defer ZeroBytes(plaintext)
+	return bcrypt.CompareHashAndPassword([]byte(hash), plaintext) == nil
 }
 
 // GenerateTOTPSecret generates a new RFC 6238 TOTP key for username.

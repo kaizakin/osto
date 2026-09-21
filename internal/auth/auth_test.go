@@ -16,6 +16,19 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func pw(s string) []byte {
+	return []byte(s)
+}
+
+func assertZeroed(t *testing.T, b []byte) {
+	t.Helper()
+	for i, c := range b {
+		if c != 0 {
+			t.Fatalf("password byte %d not zeroed: %d", i, c)
+		}
+	}
+}
+
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := dbpkg.Open(
@@ -49,48 +62,60 @@ func findSchemaPath(t *testing.T) string {
 }
 
 func TestHashPassword(t *testing.T) {
-	hash, err := auth.HashPassword("supersecret123!")
+	secret := pw("supersecret123!")
+	hash, err := auth.HashPassword(secret)
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
 	}
 	if hash == "" || hash == "supersecret123!" {
 		t.Fatal("unexpected hash value")
 	}
+	assertZeroed(t, secret)
 }
 
 func TestCheckPasswordCorrect(t *testing.T) {
-	hash, _ := auth.HashPassword("correct-horse-battery-staple")
-	if !auth.CheckPassword(hash, "correct-horse-battery-staple") {
+	hash, _ := auth.HashPassword(pw("correct-horse-battery-staple"))
+	plain := pw("correct-horse-battery-staple")
+	if !auth.CheckPassword(hash, plain) {
 		t.Error("CheckPassword returned false for correct password")
 	}
+	assertZeroed(t, plain)
 }
 
 func TestCheckPasswordIncorrect(t *testing.T) {
-	hash, _ := auth.HashPassword("correct-password")
-	if auth.CheckPassword(hash, "wrong-password") {
+	hash, _ := auth.HashPassword(pw("correct-password"))
+	wrong := pw("wrong-password")
+	if auth.CheckPassword(hash, wrong) {
 		t.Error("CheckPassword returned true for wrong password")
 	}
+	assertZeroed(t, wrong)
 }
 
 func TestHashesAreDifferent(t *testing.T) {
-	h1, _ := auth.HashPassword("same-password")
-	h2, _ := auth.HashPassword("same-password")
+	h1, _ := auth.HashPassword(pw("same-password"))
+	h2, _ := auth.HashPassword(pw("same-password"))
 	if h1 == h2 {
 		t.Error("expected different hashes (unique salts)")
 	}
 }
 
+func TestZeroBytes(t *testing.T) {
+	b := []byte("leftover")
+	auth.ZeroBytes(b)
+	assertZeroed(t, b)
+}
+
 func TestLoginLockoutAfterThreeFailures(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "lockeduser", "correct-password"); err != nil {
+	if err := auth.RegisterUser(db, "lockeduser", pw("correct-password")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
 	for i := 1; i <= 3; i++ {
-		if _, err := auth.LoginUser(db, "lockeduser", "wrong"); err == nil {
+		if _, err := auth.LoginUser(db, "lockeduser", pw("wrong")); err == nil {
 			t.Fatalf("attempt %d: expected error", i)
 		}
 	}
-	_, err := auth.LoginUser(db, "lockeduser", "wrong")
+	_, err := auth.LoginUser(db, "lockeduser", pw("wrong"))
 	if !errors.Is(err, auth.ErrAccountLocked) {
 		t.Fatalf("expected ErrAccountLocked, got: %v", err)
 	}
@@ -98,13 +123,13 @@ func TestLoginLockoutAfterThreeFailures(t *testing.T) {
 
 func TestSuccessfulLoginResetsFailedAttempts(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "resetuser", "mypassword"); err != nil {
+	if err := auth.RegisterUser(db, "resetuser", pw("mypassword")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		_, _ = auth.LoginUser(db, "resetuser", "bad")
+		_, _ = auth.LoginUser(db, "resetuser", pw("bad"))
 	}
-	user, err := auth.LoginUser(db, "resetuser", "mypassword")
+	user, err := auth.LoginUser(db, "resetuser", pw("mypassword"))
 	if err != nil || user == nil {
 		t.Fatalf("LoginUser: %v", err)
 	}
@@ -112,13 +137,13 @@ func TestSuccessfulLoginResetsFailedAttempts(t *testing.T) {
 
 func TestLockedAccountRejectsCorrectPassword(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "alwayslocked", "correct"); err != nil {
+	if err := auth.RegisterUser(db, "alwayslocked", pw("correct")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		_, _ = auth.LoginUser(db, "alwayslocked", "bad")
+		_, _ = auth.LoginUser(db, "alwayslocked", pw("bad"))
 	}
-	_, err := auth.LoginUser(db, "alwayslocked", "correct")
+	_, err := auth.LoginUser(db, "alwayslocked", pw("correct"))
 	if !errors.Is(err, auth.ErrAccountLocked) {
 		t.Fatalf("expected ErrAccountLocked, got: %v", err)
 	}
@@ -126,10 +151,10 @@ func TestLockedAccountRejectsCorrectPassword(t *testing.T) {
 
 func TestNewSessionIsValid(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "sessionuser", "pass"); err != nil {
+	if err := auth.RegisterUser(db, "sessionuser", pw("pass")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
-	user, err := auth.LoginUser(db, "sessionuser", "pass")
+	user, err := auth.LoginUser(db, "sessionuser", pw("pass"))
 	if err != nil {
 		t.Fatalf("LoginUser: %v", err)
 	}
@@ -154,10 +179,10 @@ func TestNewSessionIsValid(t *testing.T) {
 
 func TestValidateSessionExpired(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "expireduser", "pass"); err != nil {
+	if err := auth.RegisterUser(db, "expireduser", pw("pass")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
-	user, err := auth.LoginUser(db, "expireduser", "pass")
+	user, err := auth.LoginUser(db, "expireduser", pw("pass"))
 	if err != nil {
 		t.Fatalf("LoginUser: %v", err)
 	}
@@ -177,10 +202,10 @@ func TestValidateSessionExpired(t *testing.T) {
 
 func TestDestroySession(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "destroyuser", "pass"); err != nil {
+	if err := auth.RegisterUser(db, "destroyuser", pw("pass")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
-	user, err := auth.LoginUser(db, "destroyuser", "pass")
+	user, err := auth.LoginUser(db, "destroyuser", pw("pass"))
 	if err != nil {
 		t.Fatalf("LoginUser: %v", err)
 	}
@@ -295,10 +320,10 @@ func TestHashSessionTokenRejectsInvalidToken(t *testing.T) {
 
 func TestSessionPlaintextNotStoredInDatabase(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "hashtest", "pass"); err != nil {
+	if err := auth.RegisterUser(db, "hashtest", pw("pass")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
-	user, err := auth.LoginUser(db, "hashtest", "pass")
+	user, err := auth.LoginUser(db, "hashtest", pw("pass"))
 	if err != nil {
 		t.Fatalf("LoginUser: %v", err)
 	}
@@ -337,10 +362,10 @@ func TestSessionPlaintextNotStoredInDatabase(t *testing.T) {
 
 func TestValidateSessionRejectsDigestUsedAsToken(t *testing.T) {
 	db := newTestDB(t)
-	if err := auth.RegisterUser(db, "digestuser", "pass"); err != nil {
+	if err := auth.RegisterUser(db, "digestuser", pw("pass")); err != nil {
 		t.Fatalf("RegisterUser: %v", err)
 	}
-	user, err := auth.LoginUser(db, "digestuser", "pass")
+	user, err := auth.LoginUser(db, "digestuser", pw("pass"))
 	if err != nil {
 		t.Fatalf("LoginUser: %v", err)
 	}

@@ -22,8 +22,9 @@ var (
 )
 
 // RegisterUser validates and creates a new user account.
-func RegisterUser(database *sql.DB, username, password string) error {
-	if username == "" || password == "" {
+func RegisterUser(database *sql.DB, username string, password []byte) error {
+	defer ZeroBytes(password)
+	if username == "" || len(password) == 0 {
 		return errors.New("username and password must not be empty")
 	}
 	existing, err := store.GetUserByUsername(database, username)
@@ -44,7 +45,8 @@ func RegisterUser(database *sql.DB, username, password string) error {
 }
 
 // LoginUser authenticates credentials and enforces the lockout policy.
-func LoginUser(database *sql.DB, username, password string) (*models.User, error) {
+func LoginUser(database *sql.DB, username string, password []byte) (*models.User, error) {
+	defer ZeroBytes(password)
 	user, err := store.GetUserByUsername(database, username)
 	if err != nil {
 		return nil, fmt.Errorf("service: login lookup: %w", err)

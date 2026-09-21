@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -34,27 +35,32 @@ func promptLine(rl *readline.Instance, prompt string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-func promptPassword(rl *readline.Instance, prompt string) (string, error) {
+func promptPassword(rl *readline.Instance, prompt string) ([]byte, error) {
 	pass, err := rl.ReadPassword(prompt)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return strings.TrimSpace(string(pass)), nil
+	trimmed := bytes.TrimSpace(pass)
+	out := make([]byte, len(trimmed))
+	copy(out, trimmed)
+	auth.ZeroBytes(pass)
+	return out, nil
 }
 
-type passwordReader func(prompt string) (string, error)
+type passwordReader func(prompt string) ([]byte, error)
 
-type loginAttempt func(username, password string) (*models.User, error)
+type loginAttempt func(username string, password []byte) (*models.User, error)
 
 // promptPasswordUntilMinLength keeps asking until the password meets minLen.
-// A read error (Ctrl-C / EOF) still cancels.
-func promptPasswordUntilMinLength(read passwordReader, minLen int) (string, error) {
+// A read error (Ctrl-C / EOF) still cancels. Rejected buffers are zeroed.
+func promptPasswordUntilMinLength(read passwordReader, minLen int) ([]byte, error) {
 	for {
 		password, err := read("  Password: ")
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if len(password) < minLen {
+			auth.ZeroBytes(password)
 			fmt.Printf("  %s Password must be at least %d characters. Try again.\n", red("✗"), minLen)
 			continue
 		}
@@ -71,6 +77,7 @@ func promptLoginUntilSuccess(username string, read passwordReader, attempt login
 			return nil, err
 		}
 		user, err := attempt(username, password)
+		auth.ZeroBytes(password)
 		if err != nil {
 			fmt.Printf("  %s %v\n", red("✗"), err)
 			continue
@@ -87,15 +94,21 @@ func HandleRegister(rl *readline.Instance, db *sql.DB, state *models.AppState) {
 		fmt.Println(red("  ✗ Cancelled or empty username."))
 		return
 	}
-	password, err := promptPasswordUntilMinLength(func(prompt string) (string, error) {
+	password, err := promptPasswordUntilMinLength(func(prompt string) ([]byte, error) {
 		return promptPassword(rl, prompt)
 	}, minPasswordLen)
 	if err != nil {
 		fmt.Println(red("  ✗ Cancelled."))
 		return
 	}
+	defer auth.ZeroBytes(password)
 	confirm, err := promptPassword(rl, "  Confirm password: ")
-	if err != nil || password != confirm {
+	if err != nil {
+		fmt.Println(red("  ✗ Cancelled."))
+		return
+	}
+	defer auth.ZeroBytes(confirm)
+	if !bytes.Equal(password, confirm) {
 		fmt.Println(red("  ✗ Passwords do not match."))
 		return
 	}
@@ -114,9 +127,9 @@ func HandleLogin(rl *readline.Instance, db *sql.DB, state *models.AppState) {
 		fmt.Println(red("  ✗ Cancelled."))
 		return
 	}
-	user, err := promptLoginUntilSuccess(username, func(prompt string) (string, error) {
+	user, err := promptLoginUntilSuccess(username, func(prompt string) ([]byte, error) {
 		return promptPassword(rl, prompt)
-	}, func(username, password string) (*models.User, error) {
+	}, func(username string, password []byte) (*models.User, error) {
 		return auth.LoginUser(db, username, password)
 	})
 	if err != nil {
