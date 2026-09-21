@@ -1,0 +1,25 @@
+-- schema.sql: SQLite table definitions for the auth-cli application.
+-- Applied once at startup via internal/db/db.go if tables do not yet exist.
+
+-- users: stores registered accounts, password hashes, TOTP config, and lockout state.
+CREATE TABLE IF NOT EXISTS users (
+    id              INTEGER  PRIMARY KEY AUTOINCREMENT,
+    username        TEXT     UNIQUE NOT NULL,
+    password_hash   TEXT     NOT NULL,
+    totp_secret     TEXT     DEFAULT '',
+    totp_enabled    BOOLEAN  DEFAULT 0,
+    failed_attempts INTEGER  DEFAULT 0,
+    locked_until    DATETIME NULL,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_login_at   DATETIME NULL
+);
+
+-- sessions: stores active session tokens with expiry.
+-- id is a cryptographically generated 32-byte hex string.
+CREATE TABLE IF NOT EXISTS sessions (
+    id          TEXT     PRIMARY KEY,
+    user_id     INTEGER  NOT NULL,
+    expires_at  DATETIME NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
