@@ -4,7 +4,9 @@ GO      ?= go
 LDFLAGS := -s -w
 GOFLAGS := -mod=vendor -trimpath
 
-.PHONY: all build test clean run
+SQLC    ?= go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
+
+.PHONY: all build test clean run sqlc generate
 
 all: build
 
@@ -19,3 +21,9 @@ clean:
 
 run: build
 	./$(BINARY)
+
+# Generate query structs and methods from db/schema.sql + db/queries/.
+sqlc:
+	$(SQLC) generate
+
+generate: sqlc
