@@ -1,0 +1,23 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # stdin_open + tty are both required for interactive terminal usage.
+    # Without them Docker closes stdin immediately and readline has no input.
+    stdin_open: true
+    tty: true
+
+    # Environment overrides (uncomment to customise):
+    environment:
+      # SESSION_TIMEOUT: "15m"   # e.g. "30m", "1h"
+      # DB_PATH: "/app/data/auth.db"
+      SESSION_TIMEOUT: "${SESSION_TIMEOUT:-15m}"
+
+    volumes:
+      # Named volume so the SQLite database survives `docker compose down`.
+      - sqlite_data:/app/data
+
+volumes:
+  sqlite_data:
+    driver: local
