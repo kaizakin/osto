@@ -4,6 +4,9 @@ import (
 	"errors"
 	"io"
 	"testing"
+
+	"github.com/chzyer/readline"
+	"github.com/kaizakin/osto/internal/models"
 )
 
 func TestPromptUnauthenticatedUsesOsto(t *testing.T) {
@@ -87,6 +90,87 @@ func TestPromptPasswordUntilMinLengthCancelDoesNotLoop(t *testing.T) {
 func TestMinPasswordLen(t *testing.T) {
 	if minPasswordLen != 8 {
 		t.Fatalf("minPasswordLen = %d, want 8", minPasswordLen)
+	}
+}
+
+func TestPromptLoginUntilSuccessRetriesWrongPassword(t *testing.T) {
+	passwords := []string{"wrong-one", "wrong-two", "correct-password"}
+	i := 0
+	read := func(prompt string) (string, error) {
+		if prompt != "  Password: " {
+			t.Fatalf("prompt = %q", prompt)
+		}
+		if i >= len(passwords) {
+			t.Fatal("read more times than scripted passwords")
+		}
+		v := passwords[i]
+		i++
+		return v, nil
+	}
+	attempts := 0
+	user, err := promptLoginUntilSuccess("alice", read, func(username, password string) (*models.User, error) {
+		attempts++
+		if username != "alice" {
+			t.Fatalf("username = %q", username)
+		}
+		if password != "correct-password" {
+			return nil, errors.New("invalid username or password")
+		}
+		return &models.User{Username: username}, nil
+	})
+	if err != nil {
+		t.Fatalf("promptLoginUntilSuccess: %v", err)
+	}
+	if user == nil || user.Username != "alice" {
+		t.Fatalf("unexpected user: %+v", user)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+}
+
+func TestPromptLoginUntilSuccessCancelOnCtrlC(t *testing.T) {
+	reads := 0
+	read := func(string) (string, error) {
+		reads++
+		if reads == 1 {
+			return "wrong", nil
+		}
+		return "", readline.ErrInterrupt
+	}
+	attempts := 0
+	user, err := promptLoginUntilSuccess("bob", read, func(string, string) (*models.User, error) {
+		attempts++
+		return nil, errors.New("invalid username or password")
+	})
+	if !errors.Is(err, readline.ErrInterrupt) {
+		t.Fatalf("err = %v, want readline.ErrInterrupt", err)
+	}
+	if user != nil {
+		t.Fatal("expected nil user after cancel")
+	}
+	if reads != 2 {
+		t.Fatalf("reads = %d, want 2 (one failed login then Ctrl-C)", reads)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+}
+
+func TestPromptLoginUntilSuccessCancelOnEOF(t *testing.T) {
+	reads := 0
+	_, err := promptLoginUntilSuccess("bob", func(string) (string, error) {
+		reads++
+		return "", io.EOF
+	}, func(string, string) (*models.User, error) {
+		t.Fatal("login must not run after EOF")
+		return nil, nil
+	})
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("err = %v, want io.EOF", err)
+	}
+	if reads != 1 {
+		t.Fatalf("reads = %d, want 1", reads)
 	}
 }
 

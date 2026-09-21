@@ -44,6 +44,8 @@ func promptPassword(rl *readline.Instance, prompt string) (string, error) {
 
 type passwordReader func(prompt string) (string, error)
 
+type loginAttempt func(username, password string) (*models.User, error)
+
 // promptPasswordUntilMinLength keeps asking until the password meets minLen.
 // A read error (Ctrl-C / EOF) still cancels.
 func promptPasswordUntilMinLength(read passwordReader, minLen int) (string, error) {
@@ -57,6 +59,23 @@ func promptPasswordUntilMinLength(read passwordReader, minLen int) (string, erro
 			continue
 		}
 		return password, nil
+	}
+}
+
+// promptLoginUntilSuccess re-asks the password after a failed login.
+// Ctrl-C and EOF leave the password prompt without creating a session.
+func promptLoginUntilSuccess(username string, read passwordReader, attempt loginAttempt) (*models.User, error) {
+	for {
+		password, err := read("  Password: ")
+		if err != nil {
+			return nil, err
+		}
+		user, err := attempt(username, password)
+		if err != nil {
+			fmt.Printf("  %s %v\n", red("✗"), err)
+			continue
+		}
+		return user, nil
 	}
 }
 
@@ -95,14 +114,13 @@ func HandleLogin(rl *readline.Instance, db *sql.DB, state *models.AppState) {
 		fmt.Println(red("  ✗ Cancelled."))
 		return
 	}
-	password, err := promptPassword(rl, "  Password: ")
+	user, err := promptLoginUntilSuccess(username, func(prompt string) (string, error) {
+		return promptPassword(rl, prompt)
+	}, func(username, password string) (*models.User, error) {
+		return auth.LoginUser(db, username, password)
+	})
 	if err != nil {
 		fmt.Println(red("  ✗ Cancelled."))
-		return
-	}
-	user, err := auth.LoginUser(db, username, password)
-	if err != nil {
-		fmt.Printf("  %s %v\n\n", red("✗"), err)
 		return
 	}
 	if user.TOTPEnabled {
