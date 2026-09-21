@@ -1,0 +1,26 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    schema: "db/schema.sql"
+    queries: "db/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/db/sqlcgen"
+        sql_package: "database/sql"
+        emit_json_tags: false
+        overrides:
+          - column: "users.locked_until"
+            go_type:
+              type: "string"
+              pointer: true
+          - column: "users.last_login_at"
+            go_type:
+              type: "string"
+              pointer: true
+          - column: "users.created_at"
+            go_type: "string"
+          - column: "sessions.expires_at"
+            go_type: "string"
+          - column: "sessions.created_at"
+            go_type: "string"
